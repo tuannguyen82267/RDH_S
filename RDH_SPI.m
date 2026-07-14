@@ -348,11 +348,14 @@ function [img_out, bits_used, info] = lpvo_embed_layer(...
         [seg_sorted, sort_ord] = sort(seg_local);
         seg_gidx = target_idx(seg_order(sort_ord));  % global pixel indices
 
-        embeds = zeros(1, K*2);  % store (original_e, embedded_bit) pairs
+        embeds = zeros(1, K*2);  % store embedded bits for this segment
         embed_count = 0;
 
         % Embed K pairs: min/max pairs
         for pair = 1:K
+            % Check if we've run out of payload bits
+            if pay_ptr > numel(payload), break; end
+            
             lo_gi  = seg_gidx(pair);           % global idx of pair-min
             lo_ref = seg_sorted(pair+1);        % 2nd-min reference
             hi_gi  = seg_gidx(end-pair+1);     % global idx of pair-max
@@ -360,32 +363,32 @@ function [img_out, bits_used, info] = lpvo_embed_layer(...
 
             % Error for min pixel
             e_lo = double(img_out(lo_gi)) - double(lo_ref);
-            if pay_ptr + embed_count <= numel(payload)
-                bit_lo = payload(pay_ptr + embed_count);
+            if pay_ptr <= numel(payload)  % FIX: check pay_ptr directly
+                bit_lo = payload(pay_ptr);  % FIX: access payload(pay_ptr)
                 [new_lo, ok] = embed_one(double(img_out(lo_gi)), e_lo, bit_lo, -1);
                 if ok
                     img_out(lo_gi) = uint8(max(0, min(255, new_lo)));
                     embed_count = embed_count + 1;
-                    %embeds(embed_count) = bit_lo;
-                    embeds(embed_count) = bit_lo;  % embed bit_lo vào embeds(1)
+                    pay_ptr = pay_ptr + 1;  % FIX: increment pay_ptr immediately
+                    embeds(embed_count) = bit_lo;
                 end
             end
 
             % Error for max pixel
-            e_hi = double(img_out(hi_gi)) - double(hi_ref);
-            if pay_ptr + embed_count <= numel(payload)
-                bit_hi = payload(pay_ptr + embed_count);
+            if pay_ptr <= numel(payload)  % FIX: check again before max pixel
+                e_hi = double(img_out(hi_gi)) - double(hi_ref);
+                bit_hi = payload(pay_ptr);  % FIX: access payload(pay_ptr)
                 [new_hi, ok] = embed_one(double(img_out(hi_gi)), e_hi, bit_hi, +1);
                 if ok
                     img_out(hi_gi) = uint8(max(0, min(255, new_hi)));
                     embed_count = embed_count + 1;
+                    pay_ptr = pay_ptr + 1;  % FIX: increment pay_ptr immediately
                     embeds(embed_count) = bit_hi;
                 end
             end
         end
 
         bits_used = bits_used + embed_count;
-        pay_ptr   = pay_ptr + embed_count;
         n = numel(seg_records) + 1;
         seg_records(n).seg_idx = seg_range;
         seg_records(n).K       = K;
@@ -419,10 +422,9 @@ function [img_out, bits_out] = lpvo_extract_layer(...
     order = sort_map.order;
     l_vec = sort_map.l_vec;
 
-    for s = 1:n_seg   % FORWARD: same order as embedding
-        seg_range = (s-1)*L + 1 : min(s*L, n_px);  % FIX: handle last segment properly
-        
-        if seg_range(1) > n_px, continue; end
+    for s = 1:n_seg
+        % FIX: Use exact range without min()
+        seg_range = (s-1)*L + 1 : s*L;
         
         seg_local = sorted_seq(seg_range);
         seg_order = order(seg_range);
@@ -433,34 +435,34 @@ function [img_out, bits_out] = lpvo_extract_layer(...
 
         [seg_sorted, sort_ord] = sort(seg_local);
         seg_gidx = target_idx(seg_order(sort_ord));
-
         seg_bits = [];
-        for pair = 1:K  % FIX: iterate forward (1 to K), not backward
+        
+        for pair = 1:K
             % Check bounds before accessing
             if pair > numel(seg_gidx) || (numel(seg_gidx)-pair+1) < 1
                 continue;
             end
             
-            hi_gi  = seg_gidx(end-pair+1);
-            hi_ref = seg_sorted(end-pair);
             lo_gi  = seg_gidx(pair);
             lo_ref = seg_sorted(pair+1);
+            hi_gi  = seg_gidx(end-pair+1);
+            hi_ref = seg_sorted(end-pair);
 
-            % Extract from max pixel
-            e_hi = double(img_out(hi_gi)) - double(hi_ref);
-            [orig_hi, bit_hi] = extract_one(double(img_out(hi_gi)), e_hi, +1);
-            img_out(hi_gi) = uint8(max(0, min(255, orig_hi)));
-            seg_bits = [bit_hi, seg_bits]; %#ok<AGROW>
-            
-
-            % Extract from min pixel
+            % Extract min pixel first (same order as embedding)
             e_lo = double(img_out(lo_gi)) - double(lo_ref);
             [orig_lo, bit_lo] = extract_one(double(img_out(lo_gi)), e_lo, -1);
             img_out(lo_gi) = uint8(max(0, min(255, orig_lo)));
-            seg_bits = [bit_lo, seg_bits]; %#ok<AGROW>
             
+            % Extract max pixel second
+            e_hi = double(img_out(hi_gi)) - double(hi_ref);
+            [orig_hi, bit_hi] = extract_one(double(img_out(hi_gi)), e_hi, +1);
+            img_out(hi_gi) = uint8(max(0, min(255, orig_hi)));
+            
+            % FIX: Append in SAME order as embedding: [min, max]
+            seg_bits = [seg_bits, bit_lo, bit_hi];
         end
-        bits_out = [bits_out, seg_bits]; %#ok<AGROW>
+        
+        bits_out = [bits_out, seg_bits];
     end
 end
 
