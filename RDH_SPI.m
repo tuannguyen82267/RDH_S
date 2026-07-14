@@ -450,16 +450,15 @@ function [img_out, bits_out] = lpvo_extract_layer(...
             e_hi = double(img_out(hi_gi)) - double(hi_ref);
             [orig_hi, bit_hi] = extract_one(double(img_out(hi_gi)), e_hi, +1);
             img_out(hi_gi) = uint8(max(0, min(255, orig_hi)));
-            %seg_bits = [bit_hi, seg_bits]; %#ok<AGROW>
-            seg_bits = [seg_bits, bit_hi]; %#ok<AGROW>  % append hi
+            seg_bits = [bit_hi, seg_bits]; %#ok<AGROW>
+            
 
             % Extract from min pixel
             e_lo = double(img_out(lo_gi)) - double(lo_ref);
             [orig_lo, bit_lo] = extract_one(double(img_out(lo_gi)), e_lo, -1);
             img_out(lo_gi) = uint8(max(0, min(255, orig_lo)));
-            %seg_bits = [bit_lo, seg_bits]; %#ok<AGROW>
-            seg_bits = [seg_bits, bit_lo]; %#ok<AGROW>  % append lo
-
+            seg_bits = [bit_lo, seg_bits]; %#ok<AGROW>
+            
         end
         bits_out = [bits_out, seg_bits]; %#ok<AGROW>
     end
