@@ -1,5 +1,5 @@
 % ==========================================================================
-% RDH_SPI.m  —  v1.0  [FIXED]
+% RDH_SPI.m  —  v1.0  [FIXED v2]
 % A New Reversible Data Hiding Algorithm Based On Sorting-and-Prediction
 % Integration  |  Li et al., IEEE Transactions on Consumer Electronics, 2026
 % DOI: 10.1109/TCE.2026.3683088
@@ -12,24 +12,18 @@ function RDH_SPI_v5()
     fprintf('    DOI: 10.1109/TCE.2026.3683088\n\n');
     inputFolder = '/Volumes/Data_/Images/SIPI/Boat/';
     filename ='Boat.bmp';
-    % ---- Parameters ----
-    lambda = 2;   % prediction scaling (paper: λ=2, Eq.8)
-    L      = 16;  % LPVO segment length
-    T_thresh = [0, 100, 300, 600];  % smoothness thresholds (m=4)
+    lambda = 2;
+    L      = 16;
+    T_thresh = [0, 100, 300, 600];
 
-    % ---- Test image ----
     cover = imread(fullfile(inputFolder, filename));
     [M, N] = size(cover);
     fprintf('Image: %d × %d grayscale\n', M, N);
 
-    % ---- Secret data ----
     rng(7);
     payload_bits = uint8(randi([0 1], 1, 800));
     fprintf('Payload: %d bits\n\n', numel(payload_bits));
 
-    % ==================================================================
-    % EMBEDDING
-    % ==================================================================
     fprintf('--- EMBEDDING ---\n');
 
     [idx1, idx2, idx3, idx4] = partition_image(M, N);
@@ -54,7 +48,7 @@ function RDH_SPI_v5()
             layer, layer_name(layer), bits_used, info.capacity);
         
         if bits_used > 0
-            embedded_layers = [embedded_layers, layer]; %#ok<AGROW>
+            embedded_layers = [embedded_layers, layer];
         end
         
         if pay_ptr > numel(payload_bits), break; end
@@ -68,9 +62,6 @@ function RDH_SPI_v5()
     psnr_val = compute_psnr(cover, img_marked);
     fprintf('PSNR: %.2f dB\n\n', psnr_val);
 
-    % ==================================================================
-    % EXTRACTION
-    % ==================================================================
     fprintf('--- EXTRACTION ---\n');
 
     img_ext   = img_marked;
@@ -82,7 +73,7 @@ function RDH_SPI_v5()
         info = embed_info{layer};
         [img_ext, bits_out] = lpvo_extract_layer(...
             img_ext, target_idx, info, M, N, lambda, L, T_thresh);
-        rec_bits = [bits_out, rec_bits]; %#ok<AGROW>
+        rec_bits = [bits_out, rec_bits];
         fprintf('  Layer %d (%s): %d bits extracted\n', ...
             layer, layer_name(layer), numel(bits_out));
     end
@@ -178,7 +169,7 @@ function [sorted_seq, sort_map] = sort_region(img, target_idx, M, N, lambda)
         end
         for ci = col_range
             if ~isempty(mat{ri, ci})
-                sorted_order = [sorted_order, mat{ri,ci}]; %#ok<AGROW>
+                sorted_order = [sorted_order, mat{ri,ci}];
             end
         end
     end
@@ -210,7 +201,6 @@ function [img_out, bits_used, info] = lpvo_embed_layer(...
     order     = sort_map.order;
     l_vec     = sort_map.l_vec;
 
-    % === KEY FIX: Store embedding metadata for extraction ===
     seg_meta = struct('seg_idx', {}, 'K', {}, 'S_smooth', {});
 
     for s = 1:n_seg
@@ -265,7 +255,7 @@ function [img_out, bits_used, info] = lpvo_embed_layer(...
 
         bits_used = bits_used + embed_count;
         
-        % === Store K and S for extraction ===
+        % === FIX: Only store metadata for segments where K>0 ===
         n = numel(seg_meta) + 1;
         seg_meta(n).seg_idx = seg_range;
         seg_meta(n).K = K;
@@ -295,8 +285,8 @@ function [img_out, bits_out] = lpvo_extract_layer(...
     order = sort_map.order;
     l_vec = sort_map.l_vec;
     
-    % === KEY FIX: Use stored seg_meta instead of recalculating K ===
     seg_meta = info.seg_meta;
+    meta_idx = 1;  % Track position in seg_meta array
 
     for s = 1:n_seg
         seg_range = (s-1)*L + 1 : s*L;
@@ -308,11 +298,12 @@ function [img_out, bits_out] = lpvo_extract_layer(...
         seg_gidx = target_idx(seg_order(sort_ord));
         seg_bits = [];
         
-        % === Get K from stored metadata (not recalculated) ===
-        if s <= numel(seg_meta)
-            K = seg_meta(s).K;
+        % === FIX: Only use metadata for segments stored ===
+        if meta_idx <= numel(seg_meta)
+            K = seg_meta(meta_idx).K;
+            meta_idx = meta_idx + 1;  % Move to next metadata
         else
-            K = 0;
+            K = 0;  % No more embedded segments
         end
         
         if K == 0, continue; end
